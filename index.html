@@ -235,7 +235,16 @@
 <label>Foto Profil</label><input id="profileFile" type="file" class="input" accept="image/*" onchange="previewProfile(this)"><label>Nama Tampilan</label><input id="profileName" class="input" value="Admin SPPG"><br><br><button class="btn primary" onclick="saveProfile()">Simpan Profil</button></div>
 </div>
 <div class="card"><h3>🔐 Keamanan</h3><div class="notice">Login prototype: <b>sppgpamoyanan04</b>. Untuk versi online berikutnya, login sebaiknya dipindahkan ke sistem autentikasi server agar aman dan dapat digunakan oleh banyak perangkat.</div></div>
-<div class="card"><h3>♻️ Data Prototype</h3><p class="muted">Reset akan menghapus data lokal yang tersimpan pada browser.</p><button class="btn danger" onclick="resetData()">Reset Data</button></div>
+<div class="card"><h3>💾 Database & Backup</h3>
+<p class="muted">Data aplikasi tersimpan di perangkat/browser. Gunakan backup untuk menjaga data sebelum mengganti perangkat atau browser.</p>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+<button class="btn primary" onclick="backupAllData()">⬇️ Backup Semua Data</button>
+<button class="btn secondary" onclick="document.getElementById('restoreBackupInput').click()">⬆️ Restore Backup</button>
+<input id="restoreBackupInput" type="file" accept=".json,application/json" style="display:none" onchange="restoreAllData(this.files[0])">
+</div>
+<div id="storageStatus" class="notice" style="margin-top:10px"></div>
+</div>
+<div class="card"><h3>♻️ Data Prototype</h3><p class="muted">Reset akan mengembalikan data contoh dan menghapus data yang tersimpan pada browser ini.</p><button class="btn danger" onclick="resetData()">Reset Data</button></div>
 </section>
 
 <div class="footer">SPPG Pamoyanan 04 • Prototype Management System</div>
@@ -244,11 +253,143 @@
 <div id="modal" class="modal"><div class="modalbox"><div class="modalhead"><h3 id="modalTitle">Form</h3><button class="x" onclick="closeModal()">✕</button></div><div id="modalBody"></div></div></div>
 
 <script>
-const K={rec:'sp04_rec',menu:'sp04_menu',stock:'sp04_stock',stocklog:'sp04_stocklog',vol:'sp04_vol',settings:'sp04_settings'};
-const initialRec=[{name:'SDN Ranggamekar',type:'SD',small:170,big:130,active:true},{name:'SDN Pamoyanan 3',type:'SD',small:231,big:270,active:true},{name:'SMP Negeri 13',type:'SMP',small:0,big:831,active:true},{name:'Posyandu Mulya Harja',type:'Posyandu',small:499,big:82,active:true}];
-let rec=get(K.rec,initialRec),menu=get(K.menu,[]),stock=get(K.stock,[]),stocklog=get(K.stocklog,[]),vol=get(K.vol,[]),settings=get(K.settings,{});
-let stockOrders=get(K.stockorders,[]), ingredients=get(K.ingredients,[]), stockList=get(K.stocklist,[]);
-function get(k,d){try{let x=localStorage.getItem(k);return x?JSON.parse(x):d}catch(e){return d}} function put(k,v){localStorage.setItem(k,JSON.stringify(v))}
+/* =========================
+   DATABASE SPPG PAMOYANAN 04
+   Versi final: satu database + kompatibilitas key lama
+   ========================= */
+const K={
+  db:'sp04_database_v1',
+  rec:'sp04_rec',
+  menu:'sp04_menu',
+  stock:'sp04_stock',
+  stocklog:'sp04_stocklog',
+  vol:'sp04_vol',
+  settings:'sp04_settings',
+  stockorders:'sp04_stockorders',
+  ingredients:'sp04_ingredients',
+  stocklist:'sp04_stocklist'
+};
+const initialRec=[
+ {name:'SDN Ranggamekar',type:'SD',small:170,big:130,active:true},
+ {name:'SDN Pamoyanan 3',type:'SD',small:231,big:270,active:true},
+ {name:'SMP Negeri 13',type:'SMP',small:0,big:831,active:true},
+ {name:'Posyandu Mulya Harja',type:'Posyandu',small:499,big:82,active:true}
+];
+const initialIngredients=[
+ {id:'b1',name:'Beras',unit:'Karung'},
+ {id:'b2',name:'Minyak Goreng',unit:'Liter'},
+ {id:'b3',name:'Ayam',unit:'Kg'},
+ {id:'b4',name:'Telur',unit:'Kg'},
+ {id:'b5',name:'Sayuran',unit:'Kg'},
+ {id:'b6',name:'Tahu',unit:'Papan'},
+ {id:'b7',name:'Tempe',unit:'Papan'},
+ {id:'b8',name:'Buah',unit:'Kg'}
+];
+const initialSettings={
+ name:'SPPG Pamoyanan 04',
+ agency:'Badan Gizi Nasional',
+ address:'Pamoyanan, Kota Bogor, Jawa Barat',
+ phone:'',
+ profileName:'Admin SPPG',
+ pic:'',
+ avatar:''
+};
+
+function clone(v){return JSON.parse(JSON.stringify(v))}
+function parseStored(k){
+  try{
+    const raw=localStorage.getItem(k);
+    return raw===null?null:JSON.parse(raw);
+  }catch(e){console.warn('Data rusak pada',k,e);return null}
+}
+function storageAvailable(){
+  try{
+    const k='__sp04_test__';
+    localStorage.setItem(k,'1');
+    const ok=localStorage.getItem(k)==='1';
+    localStorage.removeItem(k);
+    return ok;
+  }catch(e){return false}
+}
+function put(k,v){
+  try{
+    const text=JSON.stringify(v);
+    localStorage.setItem(k,text);
+    if(localStorage.getItem(k)!==text) throw new Error('Verifikasi penyimpanan gagal');
+    syncDatabase();
+    return true;
+  }catch(e){
+    console.error('Gagal menyimpan',k,e);
+    alert('Data belum tersimpan. Penyimpanan browser tidak tersedia/penuh. Silakan gunakan Backup setelah data berhasil tersimpan.');
+    return false;
+  }
+}
+function get(k,d){
+  const x=parseStored(k);
+  return x===null?clone(d):x;
+}
+function databaseObject(){
+  return {
+    version:1,
+    savedAt:new Date().toISOString(),
+    recipients:clone(rec||[]),
+    menus:clone(menu||[]),
+    stock:clone(stock||[]),
+    stocklog:clone(stocklog||[]),
+    stockOrders:clone(stockOrders||[]),
+    ingredients:clone(ingredients||[]),
+    stockList:clone(stockList||[]),
+    volunteers:clone(vol||[]),
+    settings:clone(settings||{})
+  };
+}
+function syncDatabase(){
+  if(typeof rec==='undefined') return;
+  try{localStorage.setItem(K.db,JSON.stringify(databaseObject()))}catch(e){console.warn('Database snapshot gagal',e)}
+}
+function loadDatabaseAndMigrate(){
+  const db=parseStored(K.db);
+  const legacy={
+    recipients:parseStored(K.rec),
+    menus:parseStored(K.menu),
+    stock:parseStored(K.stock),
+    stocklog:parseStored(K.stocklog),
+    stockOrders:parseStored(K.stockorders),
+    ingredients:parseStored(K.ingredients),
+    stockList:parseStored(K.stocklist),
+    volunteers:parseStored(K.vol),
+    settings:parseStored(K.settings)
+  };
+  const source=db&&typeof db==='object'?db:{};
+  const choose=(name,fallback)=>{
+    if(Array.isArray(source[name])) return source[name];
+    if(Array.isArray(legacy[name])) return legacy[name];
+    return clone(fallback);
+  };
+  const settingsSource=(source.settings&&typeof source.settings==='object')?source.settings:
+    ((legacy.settings&&typeof legacy.settings==='object')?legacy.settings:clone(initialSettings));
+  const out={
+    recipients:choose('recipients',initialRec),
+    menus:choose('menus',[]),
+    stock:choose('stock',[]),
+    stocklog:choose('stocklog',[]),
+    stockOrders:choose('stockOrders',[]),
+    ingredients:choose('ingredients',initialIngredients),
+    stockList:choose('stockList',[]),
+    volunteers:choose('volunteers',[]),
+    settings:settingsSource
+  };
+  // Jika database lama pernah dibuat tetapi kosong, jangan menimpa data legacy yang masih ada.
+  if(!out.ingredients.length) out.ingredients=clone(initialIngredients);
+  if(!storageAvailable()) console.warn('localStorage tidak tersedia');
+  return out;
+}
+const boot=loadDatabaseAndMigrate();
+let rec=boot.recipients,menu=boot.menus,stock=boot.stock,stocklog=boot.stocklog,vol=boot.volunteers,settings=boot.settings;
+let stockOrders=boot.stockOrders,ingredients=boot.ingredients,stockList=boot.stockList;
+if(!Array.isArray(rec)||!rec.length) rec=clone(initialRec);
+if(!Array.isArray(ingredients)||!ingredients.length) ingredients=clone(initialIngredients);
+syncDatabase();
 function fmt(n){return Number(n||0).toLocaleString('id-ID')} function money(n){return 'Rp '+Number(n||0).toLocaleString('id-ID')}
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 function login(){const id=document.getElementById('loginId').value.trim();const pw=document.getElementById('loginPass').value;const e=document.getElementById('err');if(id==='sppgpamoyanan04'&&pw==='sppgpmyn04'){sessionStorage.setItem('l','1');e.textContent='';show()}else{e.textContent='ID atau password salah.'}} function show(){document.getElementById('loginWrap').style.display='none';document.getElementById('app').style.display='block';try{renderAll()}catch(e){console.error(e)}} if(sessionStorage.getItem('l')==='1')show()
@@ -383,11 +524,27 @@ function addIngredient(){
 }
 function deleteIngredient(i){if(confirm('Hapus nama bahan ini dari master bahan?')){ingredients.splice(i,1);put(K.ingredients,ingredients);renderIngredientManager();renderIngredientChecklist()}}
 function csvEscape(v){return `"${String(v??'').replace(/"/g,'""')}"`}
-function downloadCSV(name,rows){const csv=rows.map(r=>r.map(csvEscape).join(',')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+function downloadCSV(name,rows){
+ const csv='\ufeff'+rows.map(r=>r.map(csvEscape).join(',')).join('\r\n');
+ try{
+   const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+   const url=URL.createObjectURL(blob),a=document.createElement('a');
+   a.href=url;a.download=name;a.style.position='fixed';a.style.left='-9999px';
+   document.body.appendChild(a);a.click();
+   setTimeout(()=>{URL.revokeObjectURL(url);a.remove()},2000);
+ }catch(e){
+   const url='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+   window.open(url,'_blank');
+ }
+}
 function exportStockOrders(){downloadCSV('Daftar_Pemesanan_Barang.csv',[['No.','Nama Bahan','Qty Order','Qty Datang','Sesuai / Tidak','Kondisi','Keterangan'],...stockOrders.map((x,i)=>[i+1,x.name,x.order,x.arrived,x.match,x.condition,x.note])])}
 function exportStockList(){const filter=document.getElementById('stockDateFilter').value;const list=stockList.filter(x=>!filter||x.date===filter);downloadCSV('Daftar_Stok_Barang.csv',[['Tanggal','No.','Nama Bahan','Qty','Satuan','Keterangan'],...list.map((x,i)=>[x.date,i+1,x.name,x.qty,x.unit,x.note])])}
 
-function renderAll(){renderDashboard();renderStock();renderRecipients();renderMenus();renderStock();renderVolunteers();renderReports();loadSettings()}
+function renderAll(){
+ renderDashboard();renderStock();renderRecipients();renderMenus();renderStock();renderVolunteers();renderReports();loadSettings();
+ const ss=document.getElementById('storageStatus');
+ if(ss) ss.innerHTML=storageAvailable()?'🟢 <b>Penyimpanan aktif.</b> Data akan disimpan otomatis setelah menekan Simpan.':'🔴 <b>Penyimpanan browser tidak tersedia.</b>';
+}
 function totals(){let a=rec.filter(x=>x.active),s=a.reduce((n,x)=>n+ +x.small,0),b=a.reduce((n,x)=>n+ +x.big,0);return[a.length,s,b,s+b]}
 function renderDashboard(){let [r,s,b,t]=totals();dRec.textContent=fmt(r);dSmall.textContent=fmt(s);dBig.textContent=fmt(b);dAll.textContent=fmt(t);volCount.textContent=fmt(vol.length);
 let active=rec.filter(x=>x.active);dashTable.innerHTML=active.map((x,j)=>`<tr><td>${j+1}</td><td><b>${esc(x.name)}</b></td><td>${esc(x.type)}</td><td>${fmt(x.small)}</td><td>${fmt(x.big)}</td><td><b>${fmt(+x.small + +x.big)}</b></td></tr>`).join('');
@@ -435,57 +592,78 @@ profilePreview.src=avatar;topAvatar.src=avatar;topUser.textContent=settings.prof
 function saveSettings(){settings={...settings,name:setName.value,agency:setAgency.value,pic:setPic.value,address:setAddress.value,phone:setPhone.value};put(K.settings,settings);loadSettings();alert('Identitas SPPG tersimpan')}
 function previewProfile(inp){let file=inp.files[0];if(!file)return;if(file.size>3*1024*1024)return alert('Foto maksimal 3 MB.');let r=new FileReader();r.onload=()=>{profilePreview.src=r.result;profilePreview.dataset.new='1'};r.readAsDataURL(file)}
 function saveProfile(){settings={...settings,profileName:profileName.value};if(profilePreview.dataset.new==='1')settings.avatar=profilePreview.src;put(K.settings,settings);loadSettings();alert('Profil berhasil diperbarui')}
-function resetData(){if(confirm('Reset seluruh data prototype?')){localStorage.clear();location.reload()}}
-</script>
-
-<script>
-let deferredInstallPrompt = null;
-window.addEventListener('beforeinstallprompt', (e) => {
-  e.preventDefault();
-  deferredInstallPrompt = e;
-  const btn = document.getElementById('installPWA');
-  if (btn) btn.style.display = 'inline-flex';
-});
-async function installPWA(){
-  if (!deferredInstallPrompt) {
-    alert('Jika tombol instal belum tersedia, buka web ini melalui Chrome/Edge dari alamat HTTPS lalu pilih menu browser → Tambahkan ke layar utama.');
-    return;
-  }
-  deferredInstallPrompt.prompt();
-  await deferredInstallPrompt.userChoice;
-  deferredInstallPrompt = null;
-  const btn = document.getElementById('installPWA');
-  if (btn) btn.style.display = 'none';
+function backupAllData(){
+  syncDatabase();
+  const payload=databaseObject();
+  const text='\ufeff'+JSON.stringify(payload,null,2);
+  const blob=new Blob([text],{type:'application/json;charset=utf-8'});
+  const url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download='SPPG_Pamoyanan_04_Backup_'+new Date().toISOString().slice(0,10)+'.json';
+  document.body.appendChild(a);a.click();
+  setTimeout(()=>{URL.revokeObjectURL(url);a.remove()},2000);
 }
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(console.error));
+function restoreAllData(file){
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=()=>{
+    try{
+      const raw=String(reader.result).replace(/^\ufeff/,'');
+      const x=JSON.parse(raw);
+      if(!x||typeof x!=='object')throw new Error('Format');
+      if(!confirm('Restore backup akan mengganti data aplikasi saat ini. Lanjutkan?'))return;
+      rec=Array.isArray(x.recipients)?x.recipients:[];
+      menu=Array.isArray(x.menus)?x.menus:[];
+      stock=Array.isArray(x.stock)?x.stock:[];
+      stocklog=Array.isArray(x.stocklog)?x.stocklog:[];
+      stockOrders=Array.isArray(x.stockOrders)?x.stockOrders:[];
+      ingredients=Array.isArray(x.ingredients)?x.ingredients:clone(initialIngredients);
+      stockList=Array.isArray(x.stockList)?x.stockList:[];
+      vol=Array.isArray(x.volunteers)?x.volunteers:[];
+      settings=(x.settings&&typeof x.settings==='object')?x.settings:{};
+      put(K.rec,rec);put(K.menu,menu);put(K.stock,stock);put(K.stocklog,stocklog);
+      put(K.stockorders,stockOrders);put(K.ingredients,ingredients);put(K.stocklist,stockList);
+      put(K.vol,vol);put(K.settings,settings);syncDatabase();
+      renderAll();alert('Backup berhasil dipulihkan.');
+    }catch(e){console.error(e);alert('File backup tidak valid atau rusak.')}
+  };
+  reader.readAsText(file);
+}
+function resetData(){
+ if(confirm('Reset seluruh data prototype? Data yang Anda input akan dihapus dari browser ini.')){
+   Object.values(K).forEach(k=>{try{localStorage.removeItem(k)}catch(e){}});
+   rec=clone(initialRec);menu=[];stock=[];stocklog=[];stockOrders=[];ingredients=clone(initialIngredients);stockList=[];vol=[];settings=clone(initialSettings);
+   put(K.rec,rec);put(K.menu,menu);put(K.stock,stock);put(K.stocklog,stocklog);put(K.stockorders,stockOrders);put(K.ingredients,ingredients);put(K.stocklist,stockList);put(K.vol,vol);put(K.settings,settings);syncDatabase();
+   renderAll();alert('Data contoh berhasil dipulihkan.');
+ }
 }
 </script>
 
 <button id="installPWA" class="btn secondary" style="display:none;margin-top:10px;width:100%" onclick="installPWA()">📲 Instal SPPG Pamoyanan 04</button>
-
 <script>
-let deferredInstallPrompt = null;
-window.addEventListener('beforeinstallprompt', (e) => {
-  e.preventDefault();
-  deferredInstallPrompt = e;
-  const btn = document.getElementById('installPWA');
-  if (btn) btn.style.display = 'inline-flex';
-});
-async function installPWA(){
-  if (!deferredInstallPrompt) {
-    alert('Jika tombol instal belum tersedia, buka web ini melalui Chrome/Edge dari alamat HTTPS lalu pilih menu browser → Tambahkan ke layar utama.');
-    return;
-  }
-  deferredInstallPrompt.prompt();
-  await deferredInstallPrompt.userChoice;
-  deferredInstallPrompt = null;
-  const btn = document.getElementById('installPWA');
-  if (btn) btn.style.display = 'none';
-}
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(console.error));
-}
+(function(){
+ let deferredInstallPrompt=null;
+ window.addEventListener('beforeinstallprompt',function(e){
+   e.preventDefault(); deferredInstallPrompt=e;
+   const btn=document.getElementById('installPWA'); if(btn)btn.style.display='inline-flex';
+ });
+ window.installPWA=async function(){
+   if(!deferredInstallPrompt){
+     alert('Jika tombol instal belum tersedia, buka web melalui Chrome/Edge dari alamat HTTPS lalu pilih menu browser → Tambahkan ke layar utama.');
+     return;
+   }
+   deferredInstallPrompt.prompt();
+   try{await deferredInstallPrompt.userChoice}catch(e){}
+   deferredInstallPrompt=null;
+   const btn=document.getElementById('installPWA'); if(btn)btn.style.display='none';
+ };
+ if('serviceWorker' in navigator){
+   window.addEventListener('load',function(){navigator.serviceWorker.register('./sw.js').catch(console.error)});
+ }
+})();
 </script>
 
+<script>
+window.addEventListener('pagehide',function(){try{syncDatabase()}catch(e){}});
+window.addEventListener('beforeunload',function(){try{syncDatabase()}catch(e){}});
+</script>
 </body></html>
