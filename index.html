@@ -244,7 +244,7 @@
 <div id="modal" class="modal"><div class="modalbox"><div class="modalhead"><h3 id="modalTitle">Form</h3><button class="x" onclick="closeModal()">✕</button></div><div id="modalBody"></div></div></div>
 
 <script>
-const K={rec:'sp04_rec',menu:'sp04_menu',stock:'sp04_stock',stocklog:'sp04_stocklog',vol:'sp04_vol',settings:'sp04_settings'};
+const K={rec:'sp04_rec',menu:'sp04_menu',stock:'sp04_stock',stocklog:'sp04_stocklog',vol:'sp04_vol',settings:'sp04_settings',stockorders:'sp04_stockorders',ingredients:'sp04_ingredients',stocklist:'sp04_stocklist'};
 const initialRec=[{name:'SDN Ranggamekar',type:'SD',small:170,big:130,active:true},{name:'SDN Pamoyanan 3',type:'SD',small:231,big:270,active:true},{name:'SMP Negeri 13',type:'SMP',small:0,big:831,active:true},{name:'Posyandu Mulya Harja',type:'Posyandu',small:499,big:82,active:true}];
 let rec=get(K.rec,initialRec),menu=get(K.menu,[]),stock=get(K.stock,[]),stocklog=get(K.stocklog,[]),vol=get(K.vol,[]),settings=get(K.settings,{});
 let stockOrders=get(K.stockorders,[]), ingredients=get(K.ingredients,[]), stockList=get(K.stocklist,[]);
